@@ -1034,7 +1034,11 @@ blast_reassignment <- function(metascope_blast_path,
       }
     }
   }
-  reassigned_metascope_blast <- reassigned_metascope_blast[-drop_indices,] |>
+  
+  if (length(drop_indices) > 0) {
+    reassigned_metascope_blast <- reassigned_metascope_blast[-drop_indices, ]
+  }
+  reassigned_metascope_blast <- reassigned_metascope_blast |>
     dplyr::select(-"ms_index")
 
   print_file <- file.path(out_dir, paste0(sample_name, ".metascope_blast_reassigned.csv"))
