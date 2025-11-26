@@ -1,4 +1,9 @@
-globalVariables("count")
+
+if (getRversion() >= "2.15.1") {
+  utils::globalVariables(c("source_name", "species", "genus", "family", "order", 
+                           "class", "phylum", "domain", "count", "."))
+}
+
 
 get_max_index_matrix <- function(mat) {
   stopifnot(inherits(mat, "Matrix"))  # Ensure sparse Matrix
@@ -344,6 +349,8 @@ locations <- function(which_taxid, which_genome,
 #'   Depending on the parameters specified, can also output an updated BAM
 #'   file, and fasta files for additional analysis downstream.
 #'
+#' @importFrom rlang :=
+#' 
 #' @export
 #'
 #' @examples
@@ -508,16 +515,8 @@ metascope_id <- function(input_file, input_type = "csv.gz",
   ## If you don't want to force species calls, then compute which no calls:
   if (!force_calls) {
     data.table::setDT(combined)
-    combined_uniques <- combined[, .SD[which.max(scores)], by = .(qname, rname)]
-    
-    rnames_with_unique_reads <- combined_uniques |>
-      dplyr::distinct(!!dplyr::sym("qname"), !!dplyr::sym("rname")) |> 
-      dplyr::group_by(!!dplyr::sym("qname")) |>
-      dplyr::mutate(qname_counts = dplyr::n()) |>
-      dplyr::filter(!!dplyr::sym("qname_counts") == 1) |> 
-      dplyr::pull(!!dplyr::sym("rname")) |>
-      unique()
-    
+    combined_uniques <- combined[, data.table::.SD[which.max(scores)], by = c("qname", "rname")]
+
     rnames_tax_table <- taxonomizr::getTaxonomy(unique_taxids, accession_path) |>
       as.data.frame()
     rnames_tax_table$rname <- seq.int(nrow(rnames_tax_table))
@@ -563,13 +562,7 @@ metascope_id <- function(input_file, input_type = "csv.gz",
     data.table::setDT(combined_tax_levels)
     
     # Construct a single 'source_name' from dt (species preferred, falling back)
-    combined_tax_levels[, source_name := species]
-    combined_tax_levels[is.na(source_name), source_name := genus]
-    combined_tax_levels[is.na(source_name), source_name := family]
-    combined_tax_levels[is.na(source_name), source_name := order]
-    combined_tax_levels[is.na(source_name), source_name := class]
-    combined_tax_levels[is.na(source_name), source_name := phylum]
-    combined_tax_levels[is.na(source_name), source_name := domain]
+    combined_tax_levels[, source_name := data.table::fcoalesce(species, genus, family, order, class, phylum, domain)]
     
     name_map <- unique(combined_tax_levels[!is.na(source_name), .(source_name, final_genome_name)])
     
