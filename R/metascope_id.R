@@ -1,7 +1,9 @@
 
 if (getRversion() >= "2.15.1") {
   utils::globalVariables(c("source_name", "species", "genus", "family", "order", 
-                           "class", "phylum", "domain", "count", "."))
+                           "class", "phylum", "domain", "count", ".", "v", "n", ":=", 
+                           "lowest_unique_taxonomy_level", "final_genome_name", "Genome", 
+                           "read_count", "TaxonomyID", "Proportion", "readsEM", "EMProportion"))
 }
 
 
@@ -515,7 +517,7 @@ metascope_id <- function(input_file, input_type = "csv.gz",
   ## If you don't want to force species calls, then compute which no calls:
   if (!force_calls) {
     data.table::setDT(combined)
-    combined_uniques <- combined[, data.table::.SD[which.max(scores)], by = c("qname", "rname")]
+    combined_uniques <- combined[, .SD[which.max(scores)], by = .(qname, rname)]
 
     rnames_tax_table <- taxonomizr::getTaxonomy(unique_taxids, accession_path) |>
       as.data.frame()
