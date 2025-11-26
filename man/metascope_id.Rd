@@ -19,6 +19,7 @@ metascope_id(
   update_bam = FALSE,
   num_species_plot = NULL,
   group_by_taxa = "species",
+  force_calls = TRUE,
   quiet = TRUE
 )
 }
@@ -72,6 +73,10 @@ abundant species.}
 
 \item{group_by_taxa}{Character. Taxonomy level at which accessions should be
 grouped. Defaults to \code{"species"}}
+
+\item{force_calls}{Boolean. Determines whether or not to force down to 
+group_by_taxa calls or to make ambiguous no calls when uncertain. Recommended
+FALSE for 16S data and TRUE for metagenomic data.}
 
 \item{quiet}{Turns off most messages. Default is \code{TRUE}.}
 }

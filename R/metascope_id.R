@@ -335,6 +335,9 @@ locations <- function(which_taxid, which_genome,
 #'   containing the prior weights (as a percent; integer).
 #' @param group_by_taxa Character. Taxonomy level at which accessions should be
 #'   grouped. Defaults to \code{"species"}
+#' @param force_calls Boolean. Determines whether or not to force down to 
+#'   group_by_taxa calls or to make ambiguous no calls when uncertain. Recommended
+#'   FALSE for 16S data and TRUE for metagenomic data. 
 #'
 #' @return This function exports a .csv file with annotated read counts to
 #'   genomes with mapped reads to the location returned by the function.
@@ -395,6 +398,7 @@ metascope_id <- function(input_file, input_type = "csv.gz",
                          update_bam = FALSE,
                          num_species_plot = NULL,
                          group_by_taxa = "species",
+                         force_calls = TRUE, 
                          quiet = TRUE)  {
 
   out_base <- input_file %>% base::basename() %>% strsplit(split = "\\.") %>%
@@ -497,11 +501,103 @@ metascope_id <- function(input_file, input_type = "csv.gz",
   combined <- dplyr::bind_cols("qname" = qname_inds,
                                "rname" = rname_tax_inds,
                                "scores" = exp_alignment_scores)
+  
   results <- get_assignments(combined, convEM, maxitsEM, unique_taxids,
                              unique_genome_names, quiet = quiet, priors_df = priors_df)
-  metascope_id_file <- results[[1]] %>% dplyr::select("TaxonomyID", "Genome",
-                                                      "read_count", "Proportion",
-                                                      "readsEM", "EMProportion")
+  
+  ## If you don't want to force species calls, then compute which no calls:
+  if (!force_calls) {
+    data.table::setDT(combined)
+    combined_uniques <- combined[, .SD[which.max(scores)], by = .(qname, rname)]
+    
+    rnames_with_unique_reads <- combined_uniques |>
+      dplyr::distinct(!!dplyr::sym("qname"), !!dplyr::sym("rname")) |> 
+      dplyr::group_by(!!dplyr::sym("qname")) |>
+      dplyr::mutate(qname_counts = dplyr::n()) |>
+      dplyr::filter(!!dplyr::sym("qname_counts") == 1) |> 
+      dplyr::pull(!!dplyr::sym("rname")) |>
+      unique()
+    
+    rnames_tax_table <- taxonomizr::getTaxonomy(unique_taxids, accession_path) |>
+      as.data.frame()
+    rnames_tax_table$rname <- seq.int(nrow(rnames_tax_table))
+    
+    combined_tax <- dplyr::left_join(combined_uniques, rnames_tax_table, by = "rname") 
+    
+    
+    lowest_unique_level <- function(dt, q_col = "qname",
+                                    levels = c("species", "genus", "family", "order", "class", "phylum", "domain")) {
+      data.table::setDT(dt)
+      res <- rep(NA_character_, nrow(dt))
+      for (lev in levels) {
+        map <- unique(dt[, .(q = get(q_col), v = get(lev))])[!is.na(v)]
+        if (nrow(map) == 0) next
+        cnt <- map[, .(n = data.table::uniqueN(v)), by = q]
+        uq_q <- cnt[n == 1, q]
+        uniq_vals <- map[q %in% uq_q, unique(v)]
+        idx <- is.na(res) & dt[[lev]] %in% uniq_vals
+        res[idx] <- lev
+      }
+      dt[, lowest_unique_taxonomy_level := res]
+      
+      
+      return(dt)
+    }
+    
+    combined_tax_levels <- lowest_unique_level(combined_tax) |> 
+      dplyr::select(-!!dplyr::sym("qname"), -!!dplyr::sym("rname"), -!!dplyr::sym("scores")) |>
+      unique() |>
+      dplyr::mutate(final_genome_name = dplyr::case_when(
+        lowest_unique_taxonomy_level == "species" ~ species,
+        lowest_unique_taxonomy_level == "genus"   ~ genus,
+        lowest_unique_taxonomy_level == "family"  ~ family,
+        lowest_unique_taxonomy_level == "order"   ~ order,
+        lowest_unique_taxonomy_level == "class"   ~ class,
+        lowest_unique_taxonomy_level == "phylum"  ~ phylum,
+        lowest_unique_taxonomy_level == "domain"  ~ domain,
+        TRUE ~ NA_character_
+      ))
+    
+    results_tibble <- results[[1]]
+    data.table::setDT(results_tibble)
+    data.table::setDT(combined_tax_levels)
+    
+    # Construct a single 'source_name' from dt (species preferred, falling back)
+    combined_tax_levels[, source_name := species]
+    combined_tax_levels[is.na(source_name), source_name := genus]
+    combined_tax_levels[is.na(source_name), source_name := family]
+    combined_tax_levels[is.na(source_name), source_name := order]
+    combined_tax_levels[is.na(source_name), source_name := class]
+    combined_tax_levels[is.na(source_name), source_name := phylum]
+    combined_tax_levels[is.na(source_name), source_name := domain]
+    
+    name_map <- unique(combined_tax_levels[!is.na(source_name), .(source_name, final_genome_name)])
+    
+    # Join by text name and replace
+    results_tibble[name_map, Genome := data.table::fifelse(!is.na(final_genome_name), final_genome_name, Genome),
+                   on = .(Genome = source_name)]
+    
+    
+    metascope_id_file <- results_tibble[
+        order(-read_count), 
+        .(
+          TaxonomyID   = TaxonomyID[1],  # one with max read_count
+          read_count   = sum(read_count,   na.rm = TRUE),
+          Proportion   = sum(Proportion,   na.rm = TRUE),
+          readsEM      = sum(readsEM,      na.rm = TRUE),
+          EMProportion = sum(EMProportion, na.rm = TRUE)
+        ),
+        by = .(Genome)
+      ][order(-read_count)]
+    
+  }
+  else {
+    metascope_id_file <- results[[1]] %>% dplyr::select("TaxonomyID", "Genome",
+                                                        "read_count", "Proportion",
+                                                        "readsEM", "EMProportion")
+  }
+  
+  
   utils::write.csv(metascope_id_file, file = out_file, row.names = FALSE)
   if (!quiet) message("Results written to ", out_file)
 
