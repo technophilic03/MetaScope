@@ -351,7 +351,7 @@ locations <- function(which_taxid, which_genome,
 #'   Depending on the parameters specified, can also output an updated BAM
 #'   file, and fasta files for additional analysis downstream.
 #'
-#' @importFrom rlang :=
+#' @import data.table
 #' 
 #' @export
 #'
@@ -516,9 +516,9 @@ metascope_id <- function(input_file, input_type = "csv.gz",
   
   ## If you don't want to force species calls, then compute which no calls:
   if (!force_calls) {
-    combined_dt <- data.table::as.data.table(combined)
-    combined_uniques <- combined_dt[, .SD[which.max(scores)], by = .(qname, rname)]
-
+    data.table::setDT(combined)
+    combined_uniques <- combined[, .SD[which.max(scores)], by = .(qname, rname)]
+    
     rnames_tax_table <- taxonomizr::getTaxonomy(unique_taxids, accession_path) |>
       as.data.frame()
     rnames_tax_table$rname <- seq.int(nrow(rnames_tax_table))
