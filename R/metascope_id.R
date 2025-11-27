@@ -516,8 +516,8 @@ metascope_id <- function(input_file, input_type = "csv.gz",
   
   ## If you don't want to force species calls, then compute which no calls:
   if (!force_calls) {
-    combined <- data.table::as.data.table(combined)
-    combined_uniques <- combined[, .SD[which.max(scores)], by = .(qname, rname)]
+    combined_dt <- data.table::as.data.table(combined)
+    combined_uniques <- combined_dt[, .SD[which.max(scores)], by = .(qname, rname)]
 
     rnames_tax_table <- taxonomizr::getTaxonomy(unique_taxids, accession_path) |>
       as.data.frame()
