@@ -8,17 +8,25 @@ if (getRversion() >= "2.15.1") {
 
 
 get_max_index_matrix <- function(mat) {
-  stopifnot(inherits(mat, "Matrix"))  # Ensure sparse Matrix
-  # Convert to triplet format for efficient row-wise max
+  stopifnot(inherits(mat, "Matrix"))
+  
   trip <- Matrix::summary(mat)
-  row_max <- tapply(trip$x, trip$i, max)
-  # Keep only entries that match the row max
-  keep <- trip$x == row_max[as.character(trip$i)]
-  # Build a new sparse logical matrix marking max positions
-  is_max <- Matrix::sparseMatrix(i = trip$i[keep],
-               j = trip$j[keep],
-               x = TRUE,
-               dims = dim(mat))
+  
+  # Order by row, descending value, ascending column
+  ord <- order(trip$i, -trip$x, trip$j)
+  trip_ord <- trip[ord, ]
+  
+  # Keep the first occurrence per row
+  keep <- !duplicated(trip_ord$i)
+  
+  # Build sparse logical matrix
+  is_max <- Matrix::sparseMatrix(
+    i = trip_ord$i[keep],
+    j = trip_ord$j[keep],
+    x = TRUE,
+    dims = dim(mat)
+  )
+  
   return(is_max)
 }
 
