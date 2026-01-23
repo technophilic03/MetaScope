@@ -658,7 +658,7 @@ metascope_blast <- function(metascope_id_path,
   # Parallelization settings
   if (!is.numeric(num_threads)) num_threads <- 1
   BPPARAM <- BiocParallel::MulticoreParam(workers = num_threads)
-
+  
   # Sort and index bam file
   sorted_bam_file_path <- file.path(tmp_dir, paste0(sample_name, "_sorted"))
   message("Sorting bam file to ", sorted_bam_file_path, ".bam")
@@ -667,7 +667,7 @@ metascope_blast <- function(metascope_id_path,
   sorted_bam_file <- paste0(sorted_bam_file_path, ".bam")
   Rsamtools::indexBam(sorted_bam_file)
   bam_file <- Rsamtools::BamFile(sorted_bam_file, index = sorted_bam_file)
-
+  
   # Generate fasta file from sorted bam file
   command_string <- paste0("samtools view ", file.path(tmp_dir, sample_name),
                            "_sorted.bam | awk \'{print \">\"$3 \"\\n\" $10}\' > ",
@@ -675,30 +675,30 @@ metascope_blast <- function(metascope_id_path,
   system(command_string)
   all_fastas <- Biostrings::readDNAStringSet(paste0(file.path(tmp_dir, sample_name), "_aligned.fasta"))
   accessions_taxids <- find_taxids(all_fastas, accession_path)
-
-
+  
+  
   # Load in metascope id file and clean unknown genomes
   metascope_id_in <- utils::read.csv(metascope_id_path, header = TRUE)
-
+  
   # Group metascope id by species and create metascope species id
   if (db == "silva") {
     metascope_id_species <- add_in_taxa(metascope_id_in, caching = FALSE,           # TODO Add initialization steps to install required databases
-                                    path_to_write = tmp_dir)
+                                        path_to_write = tmp_dir)
   } else if (db == "ncbi") {
     tax_df <- taxonomizr::getTaxonomy(metascope_id_in$TaxonomyID, sqlFile = accession_path)
     rownames(tax_df) <- trimws(rownames(tax_df))
     tax_df <- as.data.frame(tax_df) |> 
       tibble::rownames_to_column("TaxonomyID") |>
       dplyr::mutate("TaxonomyID" = ifelse(grepl("NA", !!dplyr::sym("TaxonomyID"), fixed=TRUE), 
-                                        NA, 
-                                        gsub("^X[.]?", "", !!dplyr::sym("TaxonomyID")))) |>
+                                          NA, 
+                                          gsub("^X[.]?", "", !!dplyr::sym("TaxonomyID")))) |>
       dplyr::filter(!is.na(!!dplyr::sym("TaxonomyID"))) |>
       dplyr::mutate("TaxonomyID" = as.integer(!!dplyr::sym("TaxonomyID")))
-      
+    
     metascope_id_species <- dplyr::left_join(metascope_id_in, tax_df,
                                              by = "TaxonomyID")
   }
-
+  
   # Create fasta directory in tmp directory to save fasta sequences
   fastas_tmp_dir <- file.path(tmp_dir, "fastas")
   if(!dir.exists(fastas_tmp_dir)) dir.create(fastas_tmp_dir,
@@ -707,10 +707,11 @@ metascope_blast <- function(metascope_id_path,
   message("Generating fasta sequences from bam file")
   # How many taxa
   num_taxa_loop <- min(nrow(metascope_id_species), num_results)
-
+  
   # Sampling num_reads number of fastas per genome
   sample_fastas <- function(i) {
     current_species <- metascope_id_species$species[i]
+    current_taxid <- metascope_id_species$TaxonomyID[i]
     if (!is.na(current_species)) {
       current_accessions <- accessions_taxids |>
         dplyr::filter(!!dplyr::sym("species") == current_species) |>
@@ -729,13 +730,13 @@ metascope_blast <- function(metascope_id_path,
     if (length(seqs) > 0) {
       names(seqs) <- paste0(
         "ms_index", i, "|",
-        names(seqs), 
+        current_taxid, 
         "|read_", 
         sprintf(paste0("%0", num_digits, "d"), seq_along(seqs)))
     }
     return(seqs)
   }
-
+  
   # Parallelize sampling of fastas
   all_seqs <- BiocParallel::bplapply(seq_len(num_taxa_loop), sample_fastas, BPPARAM = BPPARAM)
   fasta_path <- file.path(fastas_tmp_dir, "blast_input_fastas.fa")
@@ -748,7 +749,7 @@ metascope_blast <- function(metascope_id_path,
   blast_tmp_dir <- file.path(tmp_dir, "blast")
   if(!dir.exists(blast_tmp_dir)) dir.create(blast_tmp_dir, recursive = TRUE)
   unlink(paste0(blast_tmp_dir, "/*"), recursive = TRUE)
-
+  
   # Run rBlast on all metascope microbes
   if (!check_blastn_exists()) {
     stop("BLAST executable not found. Please install before running.")
@@ -764,7 +765,7 @@ metascope_blast <- function(metascope_id_path,
                 "-max_target_seqs", hit_list, "-max_hsps", 1, 
                 "-num_threads", num_threads,
                 "-task", "megablast"))
-
+  
   # Calculate Blast metrics
   message("Running BLAST metrics on all blast results")
   blast_result_metrics_df <- utils::read.csv(res_path, header = FALSE)
@@ -774,8 +775,8 @@ metascope_blast <- function(metascope_id_path,
   blast_result_metrics_df <- blast_result_metrics_df |>
     dplyr::mutate(
       ms_index = stringr::str_extract(!!dplyr::sym("qseqid"), "(?<=ms_index)\\d+"), 
-      metascope_taxid = purrr::map_chr(stringr::str_split(!!dplyr::sym("qseqid"), pattern = "\\|"), ~ .x[3]),
-      read_id = purrr::map_chr(stringr::str_split(!!dplyr::sym("qseqid"), pattern = "\\|"), ~ .x[8]))
+      metascope_taxid = purrr::map_chr(stringr::str_split(!!dplyr::sym("qseqid"), pattern = "\\|"), ~ .x[2]),
+      read_id = purrr::map_chr(stringr::str_split(!!dplyr::sym("qseqid"), pattern = "\\|"), ~ .x[3]))
   ## Calculate MetaScope species and Blast Species
   ms_tax <- taxonomizr::getTaxonomy(unique(blast_result_metrics_df$metascope_taxid), sqlFile = accession_path) |>
     as.data.frame() |>
@@ -796,6 +797,7 @@ metascope_blast <- function(metascope_id_path,
   ## Best Hit Genus
   best_hit_genus <- blast_result_metrics_df |>
     dplyr::filter(!is.na(!!dplyr::sym("b_genus"))) |> 
+    dplyr::distinct(!!dplyr::sym("b_species"),!!dplyr::sym("read_id"), .keep_all = TRUE) |>
     dplyr::group_by(!!dplyr::sym("qseqid"), 
                     !!dplyr::sym("ms_index"),
                     !!dplyr::sym("read_id"),
@@ -808,12 +810,13 @@ metascope_blast <- function(metascope_id_path,
     dplyr::ungroup() |>
     dplyr::group_by(!!dplyr::sym("ms_index")) |>
     dplyr::count(!!dplyr::sym("ms_index"), !!dplyr::sym("b_genus"), name = "genus_counts") |> 
-    dplyr::slice_max(order_by = !!dplyr::sym("genus_counts"), n = 1, with_ties = FALSE) |>
-    dplyr::rename("best_hit_genus" = "b_genus")
+    dplyr::slice_max(order_by = !!dplyr::sym("genus_counts"), n = 1, with_ties = TRUE) |>
+    dplyr::group_by(!!dplyr::sym("ms_index")) |>
+    dplyr::summarize(best_hit_genus = ifelse(dplyr::n() > 1, NA, !!dplyr::sym("b_genus")))
   ms_blast_results <- dplyr::left_join(ms_blast_results, best_hit_genus, by = "ms_index")
   ## Best Hit Species 
   best_hit_species <- blast_result_metrics_df |>
-    dplyr::filter(!is.na(!!dplyr::sym("b_species"))) |> 
+    dplyr::distinct(!!dplyr::sym("b_species"),!!dplyr::sym("read_id"), .keep_all = TRUE) |>
     dplyr::group_by(!!dplyr::sym("qseqid"), 
                     !!dplyr::sym("ms_index"),
                     !!dplyr::sym("read_id"),
@@ -826,16 +829,19 @@ metascope_blast <- function(metascope_id_path,
     dplyr::ungroup() |>
     dplyr::group_by(!!dplyr::sym("ms_index")) |>
     dplyr::count(!!dplyr::sym("ms_index"), !!dplyr::sym("b_species"), name = "species_counts") |> 
-    dplyr::slice_max(order_by = !!dplyr::sym("species_counts"), n = 1, with_ties = FALSE) |>
-    dplyr::rename("best_hit_species" = "b_species")
+    dplyr::slice_max(order_by = !!dplyr::sym("species_counts"), n = 1, with_ties = TRUE) |>
+    dplyr::group_by(!!dplyr::sym("ms_index")) |>
+    dplyr::summarize(best_hit_species = ifelse(dplyr::n() > 1, NA, !!dplyr::sym("b_species")))
   ms_blast_results <- dplyr::left_join(ms_blast_results, best_hit_species, by = "ms_index")
   ## Uniqueness Score
   uniqueness_score <- blast_result_metrics_df |>
     dplyr::filter(!is.na(!!dplyr::sym("b_species"))) |> 
-    dplyr::group_by(!!dplyr::sym("qseqid"), 
-                    !!dplyr::sym("ms_index"),
-                    !!dplyr::sym("read_id"),
-                    !!dplyr::sym("b_species")) |>
+    dplyr::distinct(!!dplyr::sym("b_species"),!!dplyr::sym("read_id"), .keep_all = TRUE) |>
+    dplyr::ungroup() |>
+    dplyr::group_by(#!!dplyr::sym("qseqid"), 
+      !!dplyr::sym("ms_index"),
+      !!dplyr::sym("read_id"),
+      !!dplyr::sym("b_species")) |>
     dplyr::summarize(species_counts = dplyr::n()) |>
     dplyr::ungroup() |>
     dplyr::group_by(!!dplyr::sym("ms_index"),
@@ -881,6 +887,25 @@ metascope_blast <- function(metascope_id_path,
     dplyr::group_by(!!dplyr::sym("ms_index")) |>
     dplyr::summarize(genus_contaminant_score = mean(!!dplyr::sym("has_mismatch")), .groups = "drop")
   ms_blast_results <- dplyr::left_join(ms_blast_results, genus_contaminant_score, by = "ms_index")
+  ## Best Hit Species Groups
+  best_hit_species_group <- blast_result_metrics_df |>
+    dplyr::left_join(best_hit_genus, by = "ms_index") |> # Only match with best_hit_genus
+    dplyr::filter(!is.na(!!dplyr::sym("b_species"))) |> 
+    dplyr::filter(!!dplyr::sym("best_hit_genus") == !!dplyr::sym("b_genus")) |>
+    dplyr::group_by(!!dplyr::sym("ms_index"), 
+                    !!dplyr::sym("read_id")) |>
+    dplyr::summarize(species_group_names= paste(sort(unique(!!dplyr::sym("b_species"))), collapse = ", ")) |>
+    dplyr::ungroup() |>
+    dplyr::group_by(!!dplyr::sym("ms_index"),
+                    !!dplyr::sym("species_group_names")) |>
+    dplyr::summarize(species_group_size = dplyr::n()) |>
+    dplyr::ungroup() |>
+    dplyr::group_by(!!dplyr::sym("ms_index")) |>
+    dplyr::slice_max(!!dplyr::sym("species_group_size"), with_ties = FALSE) |>
+    dplyr::select(!(!!dplyr::sym("species_group_size")))
+  ms_blast_results <- dplyr::left_join(ms_blast_results, best_hit_species_group, by = "ms_index")
+  
+  
   
   # Append Blast Metrics to MetaScope results
   metascope_id_species <- metascope_id_species |>
