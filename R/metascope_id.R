@@ -156,7 +156,9 @@ get_assignments <- function(combined, convEM, maxitsEM, unique_taxids,
                                    x = pi_new[rname_tax_inds_2])
     theta_mat <- Matrix::sparseMatrix(qname_inds_2, rname_tax_inds_2,
                                       x = theta_new[rname_tax_inds_2])
-    weighted_gamma <- gammas * pi_mat * theta_mat
+    score_mat <- Matrix::sparseMatrix(qname_inds_2, rname_tax_inds_2,
+                                      x = combined$scores[rname_tax_inds_2])
+    weighted_gamma <- gammas * pi_mat * theta_mat * score_mat
     weighted_gamma_sums <- Matrix::rowSums(weighted_gamma)
     gammas_new <- weighted_gamma / weighted_gamma_sums
     # Maximization step: proportion of reads to each genome
