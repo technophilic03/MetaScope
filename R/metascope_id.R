@@ -616,9 +616,7 @@ metascope_id <- function(input_file, input_type = "csv.gz",
     } else {
       accessions_taxids <- tidyr::tibble(rname_names = accessions, taxids, rname = match(taxids, unique(taxids)))
     }
-    combined_distinct <- results[[2]]
-    combined_distinct <- combined_distinct |>
-      dplyr::right_join(accessions_taxids, combined_distinct, by = "rname", relationship = "many-to-many") |>
+    combined_distinct <- results[[2]] |>
       dplyr::mutate(qname_names = read_names[.data$qname])
 
     if (db == "ncbi") {
@@ -632,8 +630,17 @@ metascope_id <- function(input_file, input_type = "csv.gz",
                                  "rname_names" = sub(';.*$','', as.character(reads[[1]]$rname)))
     }
 
-    combined_bam_index <- dplyr::right_join(bam_index_df, combined_distinct,
-                                            by = (c("qname_names", "rname_names"))) |>
+    # Carry the taxa index on the BAM rows rather than expanding
+    # combined_distinct by every accession of a taxon. That expansion is the
+    # product of accessions and read hits per taxon, and it overflows the dplyr
+    # row limit once a reference holds many contigs per species.
+    bam_index_df <- dplyr::left_join(
+      bam_index_df,
+      dplyr::select(accessions_taxids, "rname_names", "rname"),
+      by = "rname_names")
+
+    combined_bam_index <- dplyr::inner_join(bam_index_df, combined_distinct,
+                                            by = c("qname_names", "rname")) |>
       dplyr::mutate("qname_rname" = paste(.data$qname, .data$rname, sep = "_"),
                     "first_qname_rname" = !duplicated(.data$qname_rname)) |>
       dplyr::filter(.data$first_qname_rname == TRUE)
