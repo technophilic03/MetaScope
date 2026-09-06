@@ -46,8 +46,10 @@ mk_interim_fastq <- function(reads_bam, read_loc, YS, quiet) {
   allqname <-
     Rsamtools::scanBam(bf_init, param = Rsamtools::ScanBamParam(
       what = "qname"))[[1]]$qname %>% unique()
-  init_df <- dplyr::tibble("Header" = unname(unlist(allqname))) %>%
-    dplyr::distinct("Header", .keep_all = TRUE)
+  # unique() above already dedupes. A distinct() call here took the string
+  # "Header" rather than the column, which dplyr reads as one constant value,
+  # so the accumulator seeded one row and the interim FASTQ held one read.
+  init_df <- dplyr::tibble("Header" = unname(unlist(allqname)))
   # Define BAM file with smaller yield size
   bf <- Rsamtools::BamFile(reads_bam, yieldSize = YS)
   # Init file connection
