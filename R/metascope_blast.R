@@ -312,8 +312,14 @@ blastn_single_result <- function(results_table, bam_file, which_result,
       magrittr::set_colnames(c("qseqid", "sseqid", "pident", "length", "mismatch",
                                "gapopen","qstart", "qend", "sstart", "send",
                                "evalue", "bitscore", "staxid")) |>
+      ## taxid_to_name() returns an integer staxid, so this side of the join
+      ## must be an integer too. Same "N/A" and ";"-list case as in the metrics
+      ## path below.
       dplyr::mutate("MetaScope_Taxid" = tax_id,
-                    "MetaScope_Genome" = as.character(genome_name))
+                    "MetaScope_Genome" = as.character(genome_name),
+                    "staxid" = suppressWarnings(as.integer(
+                      stringr::str_replace(as.character(!!dplyr::sym("staxid")),
+                                           ";(.*)$", ""))))
       taxize_genome_df <- taxid_to_name(unique(blast_res$staxid),
                                         accession_path = accession_path)
     blast_res <- dplyr::left_join(blast_res, taxize_genome_df, by = "staxid")
@@ -771,6 +777,11 @@ metascope_blast <- function(metascope_id_path,
   blast_result_metrics_df <- utils::read.csv(res_path, header = FALSE)
   colnames(blast_result_metrics_df) <- c("qseqid", "sseqid", "pident", "length", "mismatch", "gapopen",
                                          "qstart", "qend", "sstart", "send", "evalue", "bitscore", "staxid")
+  ## blastn writes "N/A" for a subject that carries no taxid, and a ";"-joined
+  ## list for one that carries several. Either value makes read.csv type the
+  ## column as character, and the b_tax join below is keyed on an integer.
+  blast_result_metrics_df$staxid <- suppressWarnings(as.integer(
+    stringr::str_replace(as.character(blast_result_metrics_df$staxid), ";(.*)$", "")))
   ## Extract MetaScope Taxid
   blast_result_metrics_df <- blast_result_metrics_df |>
     dplyr::mutate(
@@ -783,7 +794,10 @@ metascope_blast <- function(metascope_id_path,
     tibble::rownames_to_column("metascope_taxid") |>
     dplyr::mutate(metascope_taxid = stringr::str_trim(!!dplyr::sym("metascope_taxid")))
   colnames(ms_tax) <- c("metascope_taxid", "ms_domain", "ms_phylum", "ms_class", "ms_order", "ms_family", "ms_genus", "ms_species")
-  b_tax <- taxonomizr::getTaxonomy(unique(blast_result_metrics_df$staxid), sqlFile = accession_path) |>
+  ## An NA taxid would come back as a b_tax row keyed on NA, and left_join
+  ## matches NA to NA by default. Drop them, so unmapped hits keep NA taxonomy.
+  b_staxid <- unique(blast_result_metrics_df$staxid)
+  b_tax <- taxonomizr::getTaxonomy(b_staxid[!is.na(b_staxid)], sqlFile = accession_path) |>
     as.data.frame() |>
     tibble::rownames_to_column("staxid") |>
     dplyr::mutate(staxid = as.integer(stringr::str_trim(!!dplyr::sym("staxid"))))
