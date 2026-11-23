@@ -501,6 +501,15 @@ metascope_id <- function(input_file, input_type = "csv.gz",
 
     unique_taxids <- unique_tax_data$taxids
     unique_genome_names <- unique_tax_data$taxa_names
+  } else {
+    # SILVA and user-supplied feature tables carry no NCBI lineage, so
+    # group_by_taxa cannot apply. Each distinct taxid is its own taxon.
+    unique_taxids <- unique(taxids)
+    taxid_inds <- match(taxids, unique_taxids)
+    unique_genome_names <- genome_names[!duplicated(taxid_inds)]
+    if (!quiet) message("\tFound ", length(unique_taxids),
+                        " unique taxa")
+    rname_tax_inds <- taxid_inds[match(mapped_rname, accessions)]
   }
   # Order based on read names
   rname_tax_inds <- rname_tax_inds[order(qname_inds)]
