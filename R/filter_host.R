@@ -123,17 +123,16 @@ remove_matches <- function(reads_bam, read_names, output, YS, threads,
   if (make_bam) {
     name_out <- paste0(output, ".bam")
     if (file.exists(name_out)) file.remove(name_out)
-    # obtain vector of target query names from .bam file
-    target_reads <- Rsamtools::scanBam(reads_bam)[[1]]$qname
-    # define logical vector of which reads to keep, based on query names
-    filter_which <- !(target_reads %in% filter_names)
     # index target bam file (reads_BAM already sorted by chromosome)
     bam_index <- Rsamtools::indexBam(reads_bam)
-    # create BamFile instance to set yieldSize
-    bf <- Rsamtools::BamFile(reads_bam, yieldSize = length(filter_which))
+    # filterBam holds yieldSize records in memory per pass, so memory use
+    # follows YS and not the size of the bam file
+    bf <- Rsamtools::BamFile(reads_bam, yieldSize = YS)
+    keep_rule <- S4Vectors::FilterRules(list(
+      keep = function(rec) !(rec$qname %in% filter_names)))
     Rsamtools::filterBam(
       bf, destination = name_out, index = bam_index,
-      indexDestination = FALSE, filter = filter_which,
+      indexDestination = FALSE, filter = keep_rule,
       param = Rsamtools::ScanBamParam(what = "qname"))
     # file.remove(bam_index) keep bam index
   } else if (!make_bam) {
