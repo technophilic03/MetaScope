@@ -128,8 +128,11 @@ remove_matches <- function(reads_bam, read_names, output, YS, threads,
     # filterBam holds yieldSize records in memory per pass, so memory use
     # follows YS and not the size of the bam file
     bf <- Rsamtools::BamFile(reads_bam, yieldSize = YS)
+    # keyed once, so each chunk is a binary search and not a new hash of
+    # every host read name
+    host_reads <- data.table::data.table(qname = filter_names, key = "qname")
     keep_rule <- S4Vectors::FilterRules(list(
-      keep = function(rec) !(rec$qname %in% filter_names)))
+      keep = function(rec) is.na(host_reads[list(rec$qname), which = TRUE])))
     Rsamtools::filterBam(
       bf, destination = name_out, index = bam_index,
       indexDestination = FALSE, filter = keep_rule,
